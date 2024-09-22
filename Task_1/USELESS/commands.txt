@@ -1,0 +1,6 @@
+16 /bin/echo "Task 3"
+10 /bin/echo "Task 1"
+11 /bin/echo "Task 2"
+21 /bin/echo "Task 4"
+24 /bin/echo "Task 6"
+22 /bin/echo "Task 5"
