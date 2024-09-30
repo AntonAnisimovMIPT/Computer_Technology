@@ -1,0 +1,3 @@
+--- Backup operation started ---
+No files were changed. Backup completed with no updates.
+--- Backup operation finished ---

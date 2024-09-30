@@ -9,61 +9,71 @@
 
 namespace fs = std::filesystem;
 
-std::chrono::system_clock::time_point fileTimeToSystemTime(const fs::file_time_type& fileTime) {
-    auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-        fileTime - fs::file_time_type::clock::now() + std::chrono::system_clock::now());
-    return sctp;
-}
+auto isBackupFile(const fs::path& master_file, const fs::path& wingman_file) {
 
-auto isChanged(const fs::path& cur_file, const fs::path& comp_file) {
-    if (!fs::exists(comp_file)) {
+    auto master_filename = master_file.filename().string();
+    auto wingman_filename = wingman_file.filename().string();
+
+    if (wingman_filename == master_filename + ".gz") {
         return true;
     }
 
-    auto cur_file_time = fs::last_write_time(cur_file);
-    auto comp_file_time = fs::last_write_time(comp_file);
-
-    auto cur_file_time_point = fileTimeToSystemTime(cur_file_time);
-    auto comp_file_time_point = fileTimeToSystemTime(comp_file_time);
-
-    std::cout << "Current file: " << cur_file << " time: " << cur_file_time_point.time_since_epoch().count() << "\n";
-    std::cout << "Comparative file: " << comp_file << " time: " << comp_file_time_point.time_since_epoch().count() << "\n";
-
-    if (cur_file_time_point < comp_file_time_point) {
-        std::cout << "ok\n";
-        std::cout << cur_file << "\n"
-                  << comp_file << "\n";
-    }
-
-    return cur_file_time_point < comp_file_time_point;
+    return false;
 }
 
-auto processFile(const fs::path& cur_file, const fs::path& comp_file, const std::string& log_file) {
-    std::ofstream log(log_file, std::ios::app);
-    std::string line;
+auto isChanged(const fs::path& master_file, const fs::path& wingman_file) {
 
-    if (!log.is_open()) {
-        throw std::ios_base::failure("Error: Unable to open file: " + log_file);
+    if (!fs::exists(wingman_file)) {
+        return true;
     }
 
+    if (!isBackupFile(master_file, wingman_file)) {
+        return true;
+    }
+
+    auto master_file_time = fs::last_write_time(master_file);
+    auto wingman_file_time = fs::last_write_time(wingman_file);
+
+    return master_file_time > wingman_file_time;
+}
+
+auto processFile(const fs::path& master_file, const fs::path& wingman_file, std::ofstream& log) {
+
     try {
-        fs::copy_file(cur_file, comp_file, fs::copy_options::overwrite_existing);
+        fs::copy_file(master_file, wingman_file, fs::copy_options::overwrite_existing);
 
-        auto compress_command = "gzip -f \"" + comp_file.string() + "\"";
-        auto result = system(compress_command.c_str());
-        if (result != 0) {
-            log << "Compressing error: " << comp_file.string() << "\n";
-            throw std::runtime_error("Compressing error: " + comp_file.string());
+        if (master_file.extension() != ".gz") {
+
+            auto compress_command = "gzip -f \"" + wingman_file.string() + "\"";
+            auto result = system(compress_command.c_str());
+
+            if (result != 0) {
+                log << "Compressing error: " << wingman_file.string() << "\n";
+                throw std::runtime_error("Compressing error: " + wingman_file.string());
+            }
+
+            log << "File " << wingman_file << " successfully copied and compressed.\n";
+        } else {
+
+            log << "File " << wingman_file << " is already compressed, no further compression needed.\n";
         }
-
-        log << "File " << cur_file << " successful copied and compressed.\n";
     } catch (const std::exception& e) {
+
         log << "File processing error: " << e.what() << '\n';
         std::cerr << "File processing error: " << e.what() << '\n';
     }
 }
 
-auto backupDir(const fs::path& src_dir, const fs::path& dest_dir, const std::string& log_file) {
+auto doBackup(const fs::path& src_dir, const fs::path& dest_dir, const std::string& log_file) {
+
+    std::ofstream log(log_file, std::ios::app);
+    if (!log.is_open()) {
+        throw std::ios_base::failure("Error: Unable to open log file: " + log_file);
+    }
+
+    auto any_changes = false;
+    log << "--- Backup operation started ---\n";
+
     if (!fs::exists(src_dir)) {
         std::cerr << src_dir << " directory doesn't exist.\n";
         return;
@@ -76,15 +86,24 @@ auto backupDir(const fs::path& src_dir, const fs::path& dest_dir, const std::str
 
     for (const auto& entry : fs::recursive_directory_iterator(src_dir)) {
         if (fs::is_regular_file(entry)) {
-            fs::path relative_path = fs::relative(entry.path(), src_dir);
-            fs::path comp_file = dest_dir / relative_path;
 
-            if (isChanged(entry.path(), comp_file)) {
-                fs::create_directories(comp_file.parent_path());
-                processFile(entry.path(), comp_file, log_file);
+            fs::path relative_path = fs::relative(entry.path(), src_dir);
+            fs::path wingman_file = dest_dir / (relative_path.string());
+            auto comp_wingman_file = wingman_file.string() + ".gz";
+
+            if (isChanged(entry.path(), comp_wingman_file)) {
+                fs::create_directories(wingman_file.parent_path());
+                processFile(entry.path(), wingman_file, log);
+                any_changes = true;
             }
         }
     }
+
+    if (!any_changes) {
+        log << "No files were changed. Backup completed with no updates.\n";
+    }
+
+    log << "--- Backup operation finished ---\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -104,7 +123,7 @@ int main(int argc, char* argv[]) {
 
     try {
 
-        backupDir(src_dir, dest_dir, log_file);
+        doBackup(src_dir, dest_dir, log_file);
 
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << '\n';
