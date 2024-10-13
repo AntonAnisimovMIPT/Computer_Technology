@@ -1,0 +1,3 @@
+--- Backup operation started ---
+File "./test_backup/.gitignore" successfully copied and compressed.
+--- Backup operation finished ---

@@ -1,0 +1,4 @@
+--- Start of the backup operation ---
+The file has been copied successfully.
+The file has been successfully copied and compressed.
+--- Completion of the backup operation ---
